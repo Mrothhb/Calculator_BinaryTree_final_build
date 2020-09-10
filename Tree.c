@@ -1,0 +1,1123 @@
+//==========================================================================
+// cs12xcm                         Homework 9	           Matt Roth 
+//
+// March 15 2019	
+//--------------------------------------------------------------------------
+// File: Tree.c
+//
+// Description:		The program will represent a Binary Tree, with a Tree node
+//		structure, that contains a root node with possible 
+//		children nodes to the left and right. Each node in the tree will 
+//		contain data and a pointer to the next node in the tree which may be
+//		a child or a parent. Nodes and data can be inserted, searched for and 
+//		removed from the tree. 
+//
+//		UPDATE: this program will use a true remove
+//		instead of a "lazy" remove, to update the tree.
+//		The Tree class will implement all the methods that pertain 
+//		to the Tree data structure. The Tree will have methods that
+//		will insert data, remove data and find specific data in the
+//		Tree, and each method will also delegate out its functionality
+//		to the respective TNode methods. The Tree will use templates
+//		functionality to accept "Whatever" data type to perform 
+//		polymorphic like behavior. The Tree is based on a specific
+//		Binary Tree data structure using nodes to hold the data.
+//
+//==========================================================================
+
+#include <stdlib.h>
+#include <string.h>
+#include "Tree.h"
+
+// debug messages
+static const char ALLOCATE[] = " - Allocating]\n";
+static const char COST_READ[] = "[Cost Increment (Disk Access): Reading ";
+static const char COST_WRITE[] = "[Cost Increment (Disk Access): Writing ";
+static const char DEALLOCATE[] = " - Deallocating]\n";
+static const char TREE[] = "[Tree ";
+
+template <class Whatever>
+int Tree<Whatever>::debug_on = 0;	//indicate the debug status 
+
+template <class Whatever>
+long Tree<Whatever>::cost = 0;	//the cost counter
+
+template <class Whatever>
+long Tree<Whatever>::operation = 0;		//operation count 
+
+static long counter = 0;	//counter to increment the tree count
+
+
+#ifndef TRUE
+#define TRUE 1
+#endif
+
+#ifndef FALSE
+#define FALSE 0
+#endif
+
+#define THRESHOLD 2
+
+//provided code for the ostream & operator method 
+template <class Whatever>
+ostream & operator << (ostream &, const TNode<Whatever> &);
+//=========================================================================
+// struct TNode 
+//
+// Description:		The TNode will create a node in the binary tree that 
+//		will hold the data, the occupancy, and the height, balance, and
+//		respective left, right children if they exist. this_position will
+//		be an offset to the current nodes position. 
+//
+//
+//  
+// Data Fields:
+//
+//     data - the data item to be contained in the node   
+//     height - the height of the node 
+//     balance - the balance of the node 
+//     left - the left child
+//     right - the right child 
+//     this_position - this node 
+//
+// Public functions:
+//
+//					TNode - constructor(s) for initialization
+//					Read - the read data from disk method 
+//					Write - the write data to disk method
+//					Remove - removes a node and its data 
+//					Insert - inserts a new node with data 
+//					Lookup - looks for data in a node
+//					ReplaceAndRemoveMax - replaces the node with two children
+//					SetHeightAndBalance - resets the height and balance 
+//					ostream & TNode Write_AllTNodes - write all TNodes data 
+//
+//==========================================================================
+template <class Whatever>
+struct  TNode {
+	// friends:
+
+	// TNode data fields:
+	Whatever data;
+	long height;
+	long balance;
+	offset left;
+	offset right;
+	offset this_position;	// current position
+
+	// function fields:
+	TNode () : height (0), balance (0), left (0), right (0), 
+	this_position (0) {}
+
+	// to declare the working TNode in Tree's Remove
+	TNode (Whatever & element) : data (element), height (0), balance (0),
+	left (0), right (0), this_position (0) {}
+
+	TNode (Whatever &, fstream *, long &);	// to add new node to disk
+	TNode (const offset &, fstream *);	// to read node from disk
+
+	unsigned long Insert (Whatever &, fstream *, long &, offset &);
+	unsigned long Lookup (Whatever &, fstream *) const;	//TNode Lookup
+	void Read (const offset &, fstream *);	// read node from disk
+	unsigned long Remove (TNode<Whatever> &, fstream *, long &, offset &,
+			long fromSHB = FALSE);
+	void ReplaceAndRemoveMax (TNode<Whatever> &, fstream *, offset &);
+	void SetHeightAndBalance (fstream *, offset &);
+	void Write (fstream *) const;		// update node to disk
+
+	ostream & Write_AllTNodes (ostream &, fstream *) const;
+
+};
+
+/**
+ * THE CLASS HEADER FOR TREE IS IN THE Tree.h FILE
+ *
+ * */
+
+template <class Whatever>
+unsigned long TNode<Whatever> :: Lookup (Whatever & element,
+		fstream * fio) const
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: Lookup (public)
+% File :         Tree.c
+% 
+% Description : This function will search the tree for a node containing 
+%				the data specified by the user.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% element		     the output parameter to reference containing data 
+% fio				 the file stream 
+% <return>           TRUE or FALSE on success
+***************************************************************************/
+{
+	//determined success or failure of Lookup data
+	long success = 0;
+
+	//the element has been found 
+	if (element == data) {	
+
+		//set the output parameter to the data found at this 
+		element = data;
+
+		return TRUE;
+
+	}			
+
+	//compare the parameter to the data in this 
+	else if (element > data) {
+
+		//check for the right child node 
+		if (!right) {
+
+			return FALSE;
+		}	
+
+		//create a TNode to read right TNode in from disk 
+		TNode<Whatever> readRightNode(right, fio);
+
+		//recursive call to Lookup through right child 
+		success = readRightNode.Lookup(element, fio);
+
+	}
+
+	//The element is smaller than the data 
+	else {
+
+		//check for the left child node 
+		if (!left) {
+
+			return FALSE;
+		}
+
+		//create a TNode to read in left TNode from disk 
+		TNode<Whatever> readLeftNode(left, fio);
+
+		//recursive call to Lookup through left child 
+		success = readLeftNode.Lookup(element, fio);
+
+	}
+
+	return success;
+
+}
+
+template <class Whatever>
+void Tree<Whatever> :: Set_Debug_Off (void)
+/***************************************************************************
+% Routine Name : Tree<Whatever> :: Set_Debug_Off  (public)
+% File :         Tree.c
+% 
+% Description :  Set the debug mode off
+***************************************************************************/
+{
+	//turn off the debug mode 
+	Tree<Whatever>::debug_on = 0;
+}
+
+template <class Whatever>
+void Tree<Whatever> :: Set_Debug_On (void)
+/***************************************************************************
+% Routine Name : Tree<Whatever> :: Set_Debug_On (public)
+% File :         Tree.c
+% 
+% Description : Set the debug mode on 
+%***************************************************************************/
+{
+	//turn on the debug mode 
+	Tree<Whatever>::debug_on = 1;
+
+}
+
+template <class Whatever>
+unsigned long Tree<Whatever> :: Insert (Whatever & element)
+/***************************************************************************
+% Routine Name : Tree<Whatever> :: Insert (public)
+% File :         Tree.c
+% 
+% Description : Tree's insert will insert a new TNode in if its the first 
+%				node in the tree (empty tree) otherwise, this method will
+%				delegate the insert out to TNode's insert method 
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% element            output parameter reference to the item wanting to insert 
+% <return>           TRUE or FALSE on success
+***************************************************************************/
+{
+
+	//if this is the first TNode in the structure (empty Tree)
+	if (!occupancy) {
+
+		//create the first tree node 
+		TNode<Whatever> rootNode(element, fio, occupancy);
+
+		//call the IncrementOperation() to increment the counter 
+		IncrementOperation ();
+
+		return TRUE;
+
+	}
+
+	//delegate the insert function out to TNodes Insert 
+	else {
+
+		//read in the root node from the disk 
+		TNode<Whatever> readRootNode(root, fio);
+
+		//delegate the call to TNodes insert method 
+		readRootNode.Insert(element, fio, occupancy, root);
+
+		//call the IncrementOperation() to increment the counter 		
+		IncrementOperation ();
+	}
+
+	return TRUE;
+
+}
+
+template <class Whatever>
+void TNode<Whatever> :: ReplaceAndRemoveMax (TNode<Whatever> & targetTNode, 
+		fstream * fio, offset & PositionInParent) 
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: ReplaceAndRemoveMax (public)
+% File :         Tree.c
+% 
+% Description :		This method will remove a node with two children and 
+%					reinsert the node back into the tree. 
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% targetTNode	    the data being searched for 
+% PositionInParent	output parameter back to this object 
+% fio				the file stream 
+***************************************************************************/
+{
+	//check for a right child (go all the way right)
+	if (right) {
+
+		//read in the right node from the disk 
+		TNode<Whatever> readRightNode(right, fio);
+
+		//call the RARM for the right node recursively 
+		readRightNode.ReplaceAndRemoveMax(targetTNode, fio, right);
+
+		//set the height and balanace on each call
+		SetHeightAndBalance(fio, PositionInParent);
+
+	}
+
+	//the last right child was found
+	else {
+
+		//set the output parameter to data, set the output to PIP 
+		targetTNode.data = data;
+		PositionInParent = left;
+	}
+
+}
+
+template <class Whatever>
+unsigned long TNode<Whatever> :: Remove (TNode<Whatever> & elementTNode,
+		fstream * fio, long & occupancy, offset & PositionInParent,
+		long fromSHB) 
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: Remove  (TNode)
+% File :         Tree.c
+% 
+% Description :		This method will remove a node and its data.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% elementTNode		The reference to the TNode with data we want to remove  
+% PositionInParent	output parameter to this object 
+% fromSHB			if called from SHB 
+% fio				the file stream
+% occupancy			the list occupancy 
+% fromSHB			indicator of SHAB call 
+% <return>			success TRUE/FALSE
+***************************************************************************/
+{
+
+	//determine if the remove was a success 
+	long success = 0;
+
+	//the data matches the parameter 
+	if (elementTNode.data == data) {
+
+		//set the output paramter to the data 
+		elementTNode.data = data; 				
+
+		//check if there are no children
+		if (!left && !right) {
+
+			//set the parameter to Null
+			PositionInParent = 0;
+
+			//indicate success on remove 
+			success = TRUE;
+
+		}
+
+		//check if the node has two children 
+		else if (left && right) {
+
+			//read in the left node from the disk 
+			TNode<Whatever> readLeftNode(left, fio);
+
+			//delegate the remove to RARM with left node 
+			readLeftNode.ReplaceAndRemoveMax(*this, fio, left);
+
+			//if remove wasnt called from SHAB
+			if (!fromSHB) {
+
+				//set the height and balances on the node
+				SetHeightAndBalance(fio, PositionInParent);
+
+			} else {
+
+				//call to Write the Node data into disk 
+				Write(fio);
+			}
+
+			return TRUE;
+
+		}
+
+		//check if the node has a left child only
+		else if (left) {
+
+			//set the parameter PIP to left node 
+			PositionInParent = left;
+
+			success = TRUE;
+
+		}
+
+		//check if the node has a right child only 
+		else if (right) {
+
+			//set the parameter PIP to right 
+			PositionInParent = right;
+
+			return TRUE;
+
+		}
+
+	}	
+
+	//the matching data was not found, so compare the parameter to the data
+	else if (elementTNode.data > data) {
+
+		//check if right child doesn't exists 
+		if (!right) {
+
+			return FALSE;
+		}
+
+		//read in the right node from the disk 
+		TNode<Whatever> readRightNode(right, fio);
+
+		//call remove with the right node a recursive call 
+		success = readRightNode.Remove
+			(elementTNode, fio, occupancy, right, fromSHB);
+
+	}
+
+	//go to the left child  
+	else {
+
+		//if no left exists return to caller 
+		if (!left) {
+
+			return FALSE;
+		}
+
+		//read in the left node from the disk 
+		TNode<Whatever> readLeftNode(left, fio);
+
+		//call remove with the left node a recursive call 
+		success = readLeftNode.Remove
+			(elementTNode, fio, occupancy, left, fromSHB);
+
+	}
+
+	//when the Remove is not called SHB 
+	if (success && !fromSHB) {
+
+		SetHeightAndBalance(fio, PositionInParent); 
+	}
+
+	return success;
+
+
+}
+
+template <class Whatever>
+unsigned long Tree<Whatever> :: Remove (Whatever & element) 
+/***************************************************************************
+% Routine Name : Tree<Whatever> :: Remove (public)
+% File :         Tree.c
+% 
+% Description : Tree's Remove will delegate out the remove functionality
+%				to the TNode's Remove method 
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% element	         the output parameter reference to the data to remove 
+% <return>           TRUE or FALSE on success 
+***************************************************************************/
+{
+
+	//create a TNode container with the element  
+	TNode<Whatever> elementTNode(element);
+
+	//return variable for success of the method 
+	long success;
+
+	//immediately return if the tree is empty
+	if (!occupancy) {
+
+		return FALSE;
+	}
+
+	//delegate Remove to TNodes Remove 
+	else {
+
+		//Read in the root node from the disk 
+		TNode<Whatever> readRootNode (root, fio);
+
+		//call TNodes remove with the root node 
+		success = readRootNode.Remove
+			(elementTNode, fio, occupancy, root, FALSE);
+
+		//set the output paramter reference to the data found in 
+		element = elementTNode.data;
+
+	}
+
+	//if the remove was successful decrement the occupancy 
+	if (success) {
+
+		--occupancy;
+	}
+
+	//if the final TNode was removed call the rest root function 
+	if(!occupancy){
+
+		ResetRoot();
+	}
+
+	//increment the operation count 
+	IncrementOperation ();
+
+	return success;
+
+}
+
+template <class Whatever>
+void TNode<Whatever> :: SetHeightAndBalance (fstream * fio,
+		offset & PositionInParent) 
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: SetHeightAndBalance (public)
+% File :         Tree.c
+% 
+% Description :		This method will update the height and balances of the 
+%					nodes in the tree
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% PositionInParent 	         The output paramter to this node
+% fio						 the file stream
+***************************************************************************/
+
+{
+
+	//default heights of the leaf nodes 
+	long left_height = -1;
+	long right_height = -1;
+	long tallest_height = 1;
+	long fakeOccupancy = 0;	//fake parameter so we dont update occupancy
+
+	//container for the Node data 
+	TNode<Whatever> elementTNode(data);
+
+	//check for left child 
+	if (left) {
+
+		//get the height from the left child 
+		TNode<Whatever> readLeftNode(left, fio);
+		left_height = readLeftNode.height;
+
+	}
+
+	//check for a right child 
+	if (right) {
+
+		//get the height from the right child 
+		TNode<Whatever> readRightNode(right, fio);
+		right_height = readRightNode.height;	
+	}
+	//check for threshold balance 
+	if (abs(left_height-right_height) > THRESHOLD) {
+
+		//call remove to balance the tree 
+		Remove(elementTNode, fio, fakeOccupancy, PositionInParent, TRUE);
+
+		//read in the node to insert back into the tree
+		TNode<Whatever> readNode(PositionInParent, fio);
+		readNode.Insert
+			(elementTNode.data, fio, fakeOccupancy, PositionInParent);
+	}
+	else{
+		//set the balance of the node 
+		balance = left_height - right_height;
+
+		//check for tallest height 
+		if (left_height > right_height) {
+
+			tallest_height = left_height;
+		}
+
+		//check for tallest height 
+		else { 
+
+			tallest_height = right_height;
+		}
+
+		//the height is the tallest plus one 
+		height = ++tallest_height;
+
+		//write the updated node to disk 
+		Write(fio);
+	}
+}
+
+template <class Whatever>
+long Tree <Whatever> :: GetCost () 
+/***************************************************************************
+% Routine Name : Tree :: GetCost (public)
+% File :         Tree.c
+% 
+% Description :	This method will return the cost count
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% <return>			 return the cost variable            
+***************************************************************************/
+{
+
+	return Tree<Whatever>::cost;
+}
+
+template <class Whatever>
+long Tree <Whatever> :: GetOperation () 
+/***************************************************************************
+% Routine Name : Tree :: GetOperation (public)
+% File :         Tree.c
+% 
+% Description :	This method will return the operation count 
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% <return>			 return the operation variable            
+***************************************************************************/
+{
+
+	return Tree<Whatever>::operation;
+}
+
+template <class Whatever>
+void Tree <Whatever> :: IncrementCost () 
+/***************************************************************************
+% Routine Name : Tree :: IncrementCost (public)
+% File :         Tree.c
+% 
+% Description :	This method will increment the cost count variable 
+% 
+***************************************************************************/
+{
+
+	Tree<Whatever>::cost++;
+
+}
+
+template <class Whatever>
+void Tree <Whatever> :: IncrementOperation () 
+/***************************************************************************
+% Routine Name : Tree :: IncrementOperation (public)
+% File :         Tree.c
+% 
+% Description :	This method will increment the operation count variable 
+% 
+***************************************************************************/
+{
+
+	Tree<Whatever>::operation++;
+}
+
+template <class Whatever>
+void Tree <Whatever> :: ResetRoot () 
+/***************************************************************************
+% Routine Name : Tree<Whatever> :: ResetRoot (public)
+% File :         Tree.c
+% 
+% Description :	After removing the last node in the tree ResetRoot will
+%				have the root field point to the root. 
+%
+***************************************************************************/
+{
+
+	fio->seekp(0, ios::end);
+	root = fio->tellp();
+
+}
+
+template <class Whatever>
+unsigned long TNode<Whatever> :: Insert (Whatever & element, fstream * fio,
+		long & occupancy, offset & PositionInParent) 
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: Insert (public)
+% File :         Tree.c
+% 
+% Description : TNode's insert will insert a new TNode in the tree and 
+%				call TNodes write to disk.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% element            the data to be stored in the TNode. They must be of the 
+%					 same type as the rest of the objects present in the tree. 
+% fio				 the file stream 
+% occupancy			 the list occupancy 
+% PositionInParent	 the output parameter to current node 
+% <return>           TRUE or FALSE on success
+***************************************************************************/
+{
+
+	//the data matched so set this data equal to the output parameter
+	if (element == data) {
+
+		//set this data to the output parameter element
+		data = element;	
+
+		Write(fio);
+
+		return TRUE;
+
+	}
+
+	//compare the data and the data from the parameter 
+	if (element > data) {
+
+		//check for right child 
+		if (!right) {
+
+			//write the right node into disk and set right to right node 
+			TNode<Whatever> rightNode(element, fio, occupancy);
+			right = rightNode.this_position;
+
+		}
+
+		//go right again with the recursive call the this childs right 
+		else {
+
+			//read in the right node from disk and recursive call to insert 
+			TNode<Whatever> readRightNode (right, fio);
+			readRightNode.Insert(element, fio, occupancy, right);
+		}
+
+	}
+
+	//the data precedence was larger than the element parameter 
+	else {
+
+		//check for the left child 
+		if (!left) {
+
+			//write the left TNode into the disk 
+			TNode<Whatever> leftNode (element, fio, occupancy);
+			//set the left to the new left TNode 
+			left = leftNode.this_position;
+		}
+
+		//go left making a recursive call to this left child 
+		else {
+
+			TNode<Whatever> readLeftNode (left, fio);
+			readLeftNode.Insert(element, fio, occupancy, left);
+		}
+	}
+
+	//always set the height and balance after inserting a new node 
+	SetHeightAndBalance(fio, PositionInParent);		
+
+
+	return TRUE;
+}
+
+template <class Whatever>
+unsigned long Tree<Whatever> :: Lookup (Whatever & element) const
+/***************************************************************************
+% Routine Name : Tree<Whatever> :: Lookup (public)
+% File :         Tree.c
+% 
+% Description :	Tree's Lookup will search the tree recursively for a TNode
+%				and its data mathching the parameter element. If not found
+%				the method will return a false indicator.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% element            the data to be stored in the TNode. They must be of the 
+%					 same type as the rest of the objects present in the tree.
+% <return>           TRUE or FALSE on success
+***************************************************************************/
+{
+
+	//the return value of the success of the function 
+	long success;
+
+	//if theres no root node then immediately return 
+	if (!occupancy) {
+
+		return FALSE;
+	}
+
+	//delegate to TNodes Lookup method to find the data 
+	else {
+		
+		//read into memory the root node 
+		TNode<Whatever> readRootNode(root, fio); 
+
+		//set the success variable to the return value of TNodes Lookup
+		success = readRootNode.Lookup(element, fio);
+
+}
+	
+	//increment the operation counter 
+	IncrementOperation ();
+
+	return success;
+
+}
+
+template <class Whatever>
+void TNode<Whatever> :: Read (const offset & position, fstream * fio)
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: Read (public)
+% File :         Tree.c
+% 
+% Description :	TNode's Reads a TNode which is present on the datafile into 
+%				memory. The TNode is read from position. The TNode's information
+%				in the datafile overwrites this TNode's data. 
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% position          offset in the datafile corresponding to the position of the 
+%					TNode we wish to read into memory.
+% fio				the filestream corresponding to the datafile where the Tree 
+%					is stored on disk
+***************************************************************************/
+{
+	
+	//check for a corrupt file 
+	if (!*fio) {
+		cerr<<"the datafile is corrupt in TNode Read";
+	}
+	
+	//move the file stream to the indicated position
+	fio->seekg(position);
+
+	//read into memory the TNode data 
+	fio->read((char*)this, sizeof(TNode<Whatever>));
+	
+	//increment the cost counter 
+	Tree <Whatever> :: IncrementCost ();
+	
+	if (Tree<Whatever>::debug_on) {
+		cerr<<COST_READ<<(const char*)data<<"]\n";
+	}
+
+}
+
+template <class Whatever>
+TNode<Whatever> :: TNode (const offset & position, fstream * fio)
+/***************************************************************************
+% Routine Name : TNode :: TNode (Read constructor)
+% File :         Tree.c
+% 
+% Description : Called when reading a TNode present on disk into memory. 
+***************************************************************************/
+{
+
+	Read(position, fio);
+
+}
+
+template <class Whatever>
+TNode<Whatever> :: TNode (Whatever & element, fstream * fio, long & occupancy): 
+	data (element), height (0), balance (0), left (0), 
+	right (0)
+/***************************************************************************
+% Routine Name : TNode :: TNode (Write constructor)
+% File :         Tree.c
+% 
+% Description : Called when creating a TNode for the first time: 
+***************************************************************************/
+{
+	//increment the occupancy with a new TNode 
+	++occupancy;
+
+	//set the data in this node to the parameter 
+	data = element;
+
+	//have the file stream point to the end of the file to write
+	fio->seekp(0, ios::end);
+
+	//set this_position to the current file stream location on disk
+	this_position = fio->tellp();
+
+	//call the Write method to write TNode to disk
+	Write(fio);
+
+}
+
+template <class Whatever>
+void TNode<Whatever> :: Write (fstream * fio) const
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: Write (public)
+% File :         Tree.c
+% 
+% Description :	TNode's Write  Writes this TNode object to disk at this_position
+%				in the datafile. 
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% fio				the filestream corresponding to the datafile where the Tree 
+%					is stored on disk
+***************************************************************************/
+{
+	
+	//check for a corrupt file 
+	if (!*fio) {
+
+		cerr<<"the datafile is corrupt in Write!";
+	}
+
+	if (Tree<Whatever>::debug_on) {
+		cerr<<COST_WRITE<<(const char *)data<<"]\n";
+	}
+	
+	//seek the file pointer to this nodes position 
+	fio->seekp(this_position);
+
+	//write the data into the disk 
+	fio->write((const char *)this, sizeof(TNode<Whatever>));
+	
+	//increment the cost count variable 
+	Tree <Whatever> :: IncrementCost (); 
+
+}
+
+template <class Whatever>
+Tree<Whatever> :: Tree (const char * datafile) :
+	fio (new fstream (datafile, ios :: out | ios :: in)), occupancy(0), root(0) 
+/***************************************************************************
+% Routine Name : Tree :: Tree  (public)
+% File :         Tree.c
+% 
+% Description :  allocates memory associated with the Tree.  
+***************************************************************************/
+{	
+	
+	//increment the tree counter variable 
+	tree_count = ++counter;
+
+	//seek the file pointer to the begining of the file 
+	fio->seekp(0, ios::beg);
+
+	//set the offset to the begining of file 
+	offset begin = fio->tellp();
+
+	//seek the file pointer to the end of file 
+	fio->seekp(0, ios::end);
+
+	//set the offset to the end of file position 
+	offset end = fio->tellp();
+
+	//check if the file is empty 
+	if (begin == end) {
+		
+		//write the root and occupancy into the disk 
+		fio->write((const char *)&root, sizeof(root));
+		fio->write((char *)&occupancy, sizeof(occupancy));
+
+		//set the root offest to the current position in file 
+		root = fio->tellp();
+
+	}
+	
+	//the file has contents
+	else {
+		
+		//seek to the begining of the file 
+		fio->seekg(0, ios::beg);
+
+		//read the root node and occupancy into memory 
+		fio->read((char *)&root, sizeof(root));
+		fio->read((char *)&occupancy, sizeof(occupancy));
+	}
+
+	if (debug_on) {
+
+		cerr<<TREE<<tree_count<<ALLOCATE;
+	}
+
+}
+
+template <class Whatever>
+Tree<Whatever> :: ~Tree (void)
+/***************************************************************************
+% Routine Name : Tree :: ~Tree  (public)
+% File :         Tree.c
+% 
+% Description :  deallocates memory associated with the Tree.  It
+%                will also delete all the memory of the elements within
+%                the table.
+***************************************************************************/
+
+{
+	//seek the file pointer to the begining of the file 
+	fio->seekp(0, ios::beg);
+
+	//write the root and occupancy to the disk 
+	fio->write((const char *)&root, sizeof(root));
+	fio->write((char *)&occupancy, sizeof(occupancy));
+	
+	if (debug_on) {
+
+		cerr<<TREE<<tree_count<<DEALLOCATE;
+	}
+	
+	//decrement the tree counter 
+	--tree_count;
+
+	//delete the file stream 
+	delete fio;
+
+
+}	/* end: ~Tree */
+
+template <class Whatever>
+ostream & operator << (ostream & stream, const TNode<Whatever> & nnn) 
+/***************************************************************************
+% Routine Name : ostream & operator (public)
+% File :         Tree.c
+% 
+% Description : define the behavior for the overloaded << method.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% stream             A reference to the output stream.
+% nnn				 A reference to the TNode 
+***************************************************************************/
+{
+	stream << "at height:  :" << nnn.height << " with balance:  "
+		<< nnn.balance << "  ";
+	return stream << nnn.data << "\n";
+}
+
+template <class Whatever>
+ostream & Tree<Whatever> :: Write (ostream & stream) const
+/***************************************************************************
+% Routine Name : Tree :: Write (public)
+% File :         Tree.c
+% 
+% Description : This funtion will output the contents of the Tree table
+%               to the stream specificed by the caller.  The stream could be
+%               cerr, cout, or any other valid stream.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% stream             A reference to the output stream.
+% <return>           A reference to the output stream.
+***************************************************************************/
+{
+	long old_cost = cost;
+
+	stream << "Tree " << tree_count << ":\n"
+		<< "occupancy is " << occupancy << " elements.\n";
+
+	fio->seekg (0, ios :: end);
+	offset end = fio->tellg ();
+
+	// check for new file
+	if (root != end) {
+		TNode<Whatever> readRootNode (root, fio);
+		readRootNode.Write_AllTNodes (stream, fio);
+	}
+
+	// ignore cost when displaying nodes to users
+	cost = old_cost;
+
+	return stream;
+}
+
+template <class Whatever>
+ostream & TNode<Whatever> ::
+Write_AllTNodes (ostream & stream, fstream * fio) const 
+/***************************************************************************
+% Routine Name : TNode<Whatever> :: Write_AllTNodes (public)
+% File :         Tree.c
+% 
+% Description : This funtion will return the contents of the Tree and all
+%				TNodes in the tree.
+%
+% Parameters descriptions :
+% 
+% name               description
+% ------------------ ------------------------------------------------------
+% stream             A reference to the output stream.
+% <return>           A reference to the output stream.
+***************************************************************************/
+{
+	if (left) {
+		TNode<Whatever> readLeftNode (left, fio);
+		readLeftNode.Write_AllTNodes (stream, fio);
+	}
+	stream << *this;
+	if (right) {
+		TNode<Whatever> readRightNode (right, fio);
+		readRightNode.Write_AllTNodes (stream, fio);
+	}
+
+	return stream;
+}
+
